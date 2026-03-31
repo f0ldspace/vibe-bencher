@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS responses (
     session_id INTEGER NOT NULL REFERENCES sessions(id),
     model_name TEXT NOT NULL,
     response TEXT NOT NULL,
+    thinking TEXT,
     duration_ms INTEGER,
     eval_count INTEGER,
     prompt_eval_count INTEGER
@@ -111,7 +112,18 @@ def get_connection(db_name=None):
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate_add_thinking_column(conn)
     return conn
+
+
+def _migrate_add_thinking_column(conn):
+    """Add 'thinking' column to responses table if it doesn't exist (for pre-existing DBs)."""
+    columns = [
+        row[1] for row in conn.execute("PRAGMA table_info(responses)").fetchall()
+    ]
+    if "thinking" not in columns:
+        conn.execute("ALTER TABLE responses ADD COLUMN thinking TEXT")
+        conn.commit()
 
 
 def save_session(conn, prompt, notes=None):
@@ -124,13 +136,28 @@ def save_session(conn, prompt, notes=None):
 
 
 def save_response(
-    conn, session_id, model_name, response, duration_ms, eval_count, prompt_eval_count
+    conn,
+    session_id,
+    model_name,
+    response,
+    duration_ms,
+    eval_count,
+    prompt_eval_count,
+    thinking=None,
 ):
     """Insert a response and return its id."""
     cur = conn.execute(
-        "INSERT INTO responses (session_id, model_name, response, duration_ms, eval_count, prompt_eval_count) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (session_id, model_name, response, duration_ms, eval_count, prompt_eval_count),
+        "INSERT INTO responses (session_id, model_name, response, thinking, duration_ms, eval_count, prompt_eval_count) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            session_id,
+            model_name,
+            response,
+            thinking or None,
+            duration_ms,
+            eval_count,
+            prompt_eval_count,
+        ),
     )
     conn.commit()
     return cur.lastrowid

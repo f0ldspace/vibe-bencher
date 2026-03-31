@@ -74,7 +74,9 @@ def select_models_openrouter():
         # Cap results at 20
         matches = matches[:20]
         choices = [
-            Choice(f"{m['id']} ({m['name']})", value=m["id"], checked=m["id"] in selected)
+            Choice(
+                f"{m['id']} ({m['name']})", value=m["id"], checked=m["id"] in selected
+            )
             for m in matches
         ]
 
@@ -145,7 +147,7 @@ def blind_and_display(results):
     shuffled = list(results)
     random.shuffle(shuffled)
 
-    letters = list(string.ascii_uppercase[:len(shuffled)])
+    letters = list(string.ascii_uppercase[: len(shuffled)])
     labeled = list(zip(letters, shuffled))
 
     display_data = [(letter, r["response"]) for letter, r in labeled]
@@ -162,9 +164,7 @@ def collect_ranking(labeled):
     letters_str = " ".join(letters)
 
     while True:
-        answer = questionary.text(
-            f"Rank best to worst (e.g. {letters_str}):"
-        ).ask()
+        answer = questionary.text(f"Rank best to worst (e.g. {letters_str}):").ask()
 
         if not answer:
             continue
@@ -231,7 +231,9 @@ def _run_one_round(all_models, generate_fns, db_name=None):
     prompt = get_prompt()
 
     matchup = random.sample(all_models, 2)
-    console.print(f"[dim]Matchup: 2 models selected from pool of {len(all_models)}[/dim]")
+    console.print(
+        f"[dim]Matchup: 2 models selected from pool of {len(all_models)}[/dim]"
+    )
 
     def dispatch_generate(model, prompt):
         return generate_fns[model](model, prompt)
@@ -241,9 +243,13 @@ def _run_one_round(all_models, generate_fns, db_name=None):
             try:
                 ollama.unload_model(model)
             except Exception as e:
-                console.print(f"[yellow]Warning: Failed to unload model {model}: {e}[/yellow]")
+                console.print(
+                    f"[yellow]Warning: Failed to unload model {model}: {e}[/yellow]"
+                )
 
-    results = query_models(matchup, prompt, dispatch_generate, on_model_done=unload_after_generate)
+    results = query_models(
+        matchup, prompt, dispatch_generate, on_model_done=unload_after_generate
+    )
     labeled = blind_and_display(results)
     ranked_letters = collect_ranking(labeled)
     qualities = collect_quality(labeled)
@@ -254,14 +260,16 @@ def _run_one_round(all_models, generate_fns, db_name=None):
 
     for rank_idx, letter in enumerate(ranked_letters, 1):
         result = letter_to_result[letter]
-        reveal_data.append({
-            "letter": letter,
-            "model": result["model"],
-            "rank": rank_idx,
-            "quality": qualities[letter],
-            "duration_ms": result["duration_ms"],
-            "eval_count": result["eval_count"],
-        })
+        reveal_data.append(
+            {
+                "letter": letter,
+                "model": result["model"],
+                "rank": rank_idx,
+                "quality": qualities[letter],
+                "duration_ms": result["duration_ms"],
+                "eval_count": result["eval_count"],
+            }
+        )
         ranked_models.append(result["model"])
 
     show_reveal_table(reveal_data)
@@ -273,13 +281,21 @@ def _run_one_round(all_models, generate_fns, db_name=None):
         response_ids = {}
         for letter, result in labeled:
             rid = db.save_response(
-                conn, session_id, result["model"], result["response"],
-                result["duration_ms"], result["eval_count"], result["prompt_eval_count"],
+                conn,
+                session_id,
+                result["model"],
+                result["response"],
+                result["duration_ms"],
+                result["eval_count"],
+                result["prompt_eval_count"],
+                thinking=result.get("thinking"),
             )
             response_ids[letter] = rid
 
         for rank_idx, letter in enumerate(ranked_letters, 1):
-            db.save_judgment(conn, response_ids[letter], session_id, rank_idx, qualities[letter])
+            db.save_judgment(
+                conn, response_ids[letter], session_id, rank_idx, qualities[letter]
+            )
 
         current_ratings = {m: db.get_elo_for_model(conn, m) for m in ranked_models}
         new_ratings = ranking.update_ratings(ranked_models, current_ratings)
@@ -307,7 +323,9 @@ def run_session(providers=None, loop=False, db_name=None):
     all_models, generate_fns = _select_model_pool(providers)
 
     if loop:
-        console.print(f"[cyan]Loop mode — {len(all_models)} models in pool. Ctrl-C to stop.[/cyan]")
+        console.print(
+            f"[cyan]Loop mode — {len(all_models)} models in pool. Ctrl-C to stop.[/cyan]"
+        )
         round_num = 0
         while True:
             round_num += 1

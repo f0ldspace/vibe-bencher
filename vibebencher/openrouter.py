@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 import urllib.request
 import urllib.error
@@ -41,8 +42,7 @@ def list_models():
         raise ConnectionError(f"Cannot connect to OpenRouter: {e}") from e
 
     _models_cache = [
-        {"id": m["id"], "name": m.get("name", m["id"])}
-        for m in data.get("data", [])
+        {"id": m["id"], "name": m.get("name", m["id"])} for m in data.get("data", [])
     ]
     return _models_cache
 
@@ -61,10 +61,12 @@ def generate(model, prompt):
     api_key = _get_api_key()
     url = f"{BASE_URL}/chat/completions"
 
-    payload = json.dumps({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-    }).encode()
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+    ).encode()
 
     req = urllib.request.Request(
         url,
@@ -88,8 +90,21 @@ def generate(model, prompt):
     message = choice.get("message", {})
     usage = data.get("usage", {})
 
+    response_text = message.get("content", "")
+    # OpenRouter may return reasoning in a separate field for thinking models.
+    thinking = message.get("reasoning", "")
+    # Some models embed thinking in <think>...</think> tags within the content.
+    inline_think_match = re.search(r"<think>(.*?)</think>", response_text, re.DOTALL)
+    if inline_think_match:
+        if not thinking:
+            thinking = inline_think_match.group(1).strip()
+        response_text = re.sub(
+            r"<think>.*?</think>", "", response_text, flags=re.DOTALL
+        ).strip()
+
     return {
-        "response": message.get("content", ""),
+        "response": response_text,
+        "thinking": thinking,
         "duration_ms": elapsed_ms,
         "eval_count": usage.get("completion_tokens", 0),
         "prompt_eval_count": usage.get("prompt_tokens", 0),
