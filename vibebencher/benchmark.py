@@ -227,13 +227,27 @@ def _select_model_pool(providers):
 
 
 def _run_one_round(all_models, generate_fns, db_name=None):
-    """Run a single benchmark round: prompt, query 2 random models, judge, save."""
+    """Run one or more benchmark rounds: prompt, ask rounds, each round = 2 models."""
+    import questionary
+
     prompt = get_prompt()
 
-    matchup = random.sample(all_models, 2)
-    console.print(
-        f"[dim]Matchup: 2 models selected from pool of {len(all_models)}[/dim]"
-    )
+    while True:
+        answer = questionary.text("How many rounds? [default: 1]").ask()
+        if answer is None:
+            raise SystemExit(0)
+        if not answer.strip():
+            n_rounds = 1
+            break
+        try:
+            n_rounds = int(answer.strip())
+            if n_rounds < 1:
+                console.print("[red]Need at least 1 round.[/red]")
+                continue
+            break
+        except ValueError:
+            console.print("[red]Enter a valid number.[/red]")
+            continue
 
     def dispatch_generate(model, prompt):
         return generate_fns[model](model, prompt)
@@ -247,65 +261,76 @@ def _run_one_round(all_models, generate_fns, db_name=None):
                     f"[yellow]Warning: Failed to unload model {model}: {e}[/yellow]"
                 )
 
-    results = query_models(
-        matchup, prompt, dispatch_generate, on_model_done=unload_after_generate
-    )
-    labeled = blind_and_display(results)
-    ranked_letters = collect_ranking(labeled)
-    qualities = collect_quality(labeled)
-
-    letter_to_result = {letter: result for letter, result in labeled}
-    reveal_data = []
-    ranked_models = []
-
-    for rank_idx, letter in enumerate(ranked_letters, 1):
-        result = letter_to_result[letter]
-        reveal_data.append(
-            {
-                "letter": letter,
-                "model": result["model"],
-                "rank": rank_idx,
-                "quality": qualities[letter],
-                "duration_ms": result["duration_ms"],
-                "eval_count": result["eval_count"],
-            }
-        )
-        ranked_models.append(result["model"])
-
-    show_reveal_table(reveal_data)
-
     conn = db.get_connection(db_name)
     try:
         session_id = db.save_session(conn, prompt)
 
-        response_ids = {}
-        for letter, result in labeled:
-            rid = db.save_response(
-                conn,
-                session_id,
-                result["model"],
-                result["response"],
-                result["duration_ms"],
-                result["eval_count"],
-                result["prompt_eval_count"],
-                thinking=result.get("thinking"),
-            )
-            response_ids[letter] = rid
+        for round_num in range(1, n_rounds + 1):
+            if n_rounds > 1:
+                console.print(f"\n[bold]── Sub-round {round_num}/{n_rounds} ──[/bold]")
 
-        for rank_idx, letter in enumerate(ranked_letters, 1):
-            db.save_judgment(
-                conn, response_ids[letter], session_id, rank_idx, qualities[letter]
+            matchup = random.sample(all_models, 2)
+            console.print(
+                f"[dim]Matchup: 2 models selected from pool of {len(all_models)}[/dim]"
             )
 
-        current_ratings = {m: db.get_elo_for_model(conn, m) for m in ranked_models}
-        new_ratings = ranking.update_ratings(ranked_models, current_ratings)
-        wl_deltas = ranking.compute_win_loss_deltas(ranked_models)
+            results = query_models(
+                matchup, prompt, dispatch_generate, on_model_done=unload_after_generate
+            )
+            labeled = blind_and_display(results)
+            ranked_letters = collect_ranking(labeled)
+            qualities = collect_quality(labeled)
 
-        for model in ranked_models:
-            wins, losses = wl_deltas[model]
-            db.set_elo(conn, model, new_ratings[model], wins, losses)
+            letter_to_result = {letter: result for letter, result in labeled}
+            reveal_data = []
+            ranked_models = []
 
-        console.print("[green]Session saved and Elo updated.[/green]")
+            for rank_idx, letter in enumerate(ranked_letters, 1):
+                result = letter_to_result[letter]
+                reveal_data.append(
+                    {
+                        "letter": letter,
+                        "model": result["model"],
+                        "rank": rank_idx,
+                        "quality": qualities[letter],
+                        "duration_ms": result["duration_ms"],
+                        "eval_count": result["eval_count"],
+                    }
+                )
+                ranked_models.append(result["model"])
+
+            show_reveal_table(reveal_data)
+
+            response_ids = {}
+            for letter, result in labeled:
+                rid = db.save_response(
+                    conn,
+                    session_id,
+                    result["model"],
+                    result["response"],
+                    result["duration_ms"],
+                    result["eval_count"],
+                    result["prompt_eval_count"],
+                    thinking=result.get("thinking"),
+                )
+                response_ids[letter] = rid
+
+            for rank_idx, letter in enumerate(ranked_letters, 1):
+                db.save_judgment(
+                    conn, response_ids[letter], session_id, rank_idx, qualities[letter]
+                )
+
+            current_ratings = {m: db.get_elo_for_model(conn, m) for m in ranked_models}
+            new_ratings = ranking.update_ratings(ranked_models, current_ratings)
+            wl_deltas = ranking.compute_win_loss_deltas(ranked_models)
+
+            for model in ranked_models:
+                wins, losses = wl_deltas[model]
+                db.set_elo(conn, model, new_ratings[model], wins, losses)
+
+            console.print("[green]Round saved and Elo updated.[/green]")
+
+        console.print(f"[green]Session complete: {n_rounds} round(s) saved.[/green]")
     finally:
         conn.close()
 
