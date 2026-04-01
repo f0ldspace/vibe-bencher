@@ -304,37 +304,6 @@ def extract_parameters(model_name):
         except ValueError:
             pass
 
-    # Pattern 3: Try to find numbers that might be parameters
-    # Look for common parameter sizes in the name
-    common_sizes = [
-        "7b",
-        "8b",
-        "13b",
-        "14b",
-        "20b",
-        "22b",
-        "30b",
-        "32b",
-        "33b",
-        "34b",
-        "36b",
-        "40b",
-        "65b",
-        "70b",
-        "72b",
-        "80b",
-        "100b",
-        "120b",
-        "130b",
-    ]
-
-    for size in common_sizes:
-        if size in name_lower:
-            try:
-                return int(size[:-1])  # Extract number before 'b'
-            except ValueError:
-                pass
-
     return None
 
 

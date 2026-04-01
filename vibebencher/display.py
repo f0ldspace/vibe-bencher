@@ -10,9 +10,7 @@ console = Console()
 
 
 def show_blinded_responses(labeled_responses):
-    """Display responses in panels labeled by letter only.
-    labeled_responses: list of (letter, response_text) tuples.
-    """
+    """Display responses in panels labeled by letter only."""
     console.print()
     for letter, text in labeled_responses:
         panel = Panel(
@@ -26,9 +24,7 @@ def show_blinded_responses(labeled_responses):
 
 
 def show_reveal_table(reveal_data):
-    """Show the reveal table after judging.
-    reveal_data: list of dicts with keys: letter, model, rank, quality, duration_ms, eval_count.
-    """
+    """Show the reveal table after judging."""
     table = Table(
         title="[bold]Reveal[/bold]", show_header=True, header_style="bold magenta"
     )
@@ -57,98 +53,82 @@ def show_reveal_table(reveal_data):
     console.print()
 
 
-def _add_stats_row(table, row, default_models, conn):
-    model_name = row["model_name"]
+def _make_stats_table(title, rows, default_models, conn):
+    """Create and populate a stats table."""
     from vibebencher.db import resolve_params, extract_parameters
 
-    if conn is not None:
-        params = resolve_params(conn, model_name)
-    else:
-        params = extract_parameters(model_name)
-
-    if params is not None:
-        if params == int(params):
-            params_display = f"{int(params)}B"
-        else:
-            params_display = f"{params:.1f}B"
-    else:
-        params_display = "?"
-
-    if model_name not in default_models:
-        model_display = Text(model_name, style="red")
-    else:
-        model_display = model_name
-
-    table.add_row(
-        model_display,
-        params_display,
-        f"{row['elo']:.0f}",
-        str(row["sessions_count"]),
-        f"{row['win_pct']:.1f}%" if row["win_pct"] is not None else "-",
-        f"{row['good_pct']:.1f}%" if row["good_pct"] is not None else "-",
-        str(int(row["avg_tokens"])) if row["avg_tokens"] else "-",
+    table = Table(
+        title=f"[bold]{title}[/bold]",
+        show_header=True,
+        header_style="bold magenta",
     )
+    table.add_column("Model", style="green")
+    table.add_column("Params", justify="right", style="cyan")
+    table.add_column("Elo", justify="right", style="cyan")
+    table.add_column("Sessions", justify="right")
+    table.add_column("Win%", justify="right")
+    table.add_column("Good%", justify="right")
+    table.add_column("Avg Tokens", justify="right")
+
+    for row in rows:
+        model_name = row["model_name"]
+        params = (
+            resolve_params(conn, model_name) if conn else extract_parameters(model_name)
+        )
+
+        if params is not None:
+            params_display = (
+                f"{int(params)}B" if params == int(params) else f"{params:.1f}B"
+            )
+        else:
+            params_display = "?"
+
+        model_display = (
+            Text(model_name, style="red")
+            if model_name not in default_models
+            else model_name
+        )
+
+        table.add_row(
+            model_display,
+            params_display,
+            f"{row['elo']:.0f}",
+            str(row["sessions_count"]),
+            f"{row['win_pct']:.1f}%" if row["win_pct"] is not None else "-",
+            f"{row['good_pct']:.1f}%" if row["good_pct"] is not None else "-",
+            str(int(row["avg_tokens"])) if row["avg_tokens"] else "-",
+        )
+    return table
 
 
 def show_stats_table(stats, default_models=None, conn=None):
-    """Display Elo stats table. stats: list of Row objects from get_model_stats.
-
-    Args:
-        stats: List of model stats rows
-        default_models: Set of model names that are user defaults, or None
-        conn: Database connection for resolving cached params (optional)
-    """
+    """Display Elo stats table."""
     default_models = default_models or set()
-
     established = [row for row in stats if row["sessions_count"] >= 10]
     provisional = [row for row in stats if row["sessions_count"] < 10]
 
     if established:
-        table = Table(
-            title="[bold]Model Rankings (10+ sessions)[/bold]",
-            show_header=True,
-            header_style="bold magenta",
-        )
-        table.add_column("Model", style="green")
-        table.add_column("Params", justify="right", style="cyan")
-        table.add_column("Elo", justify="right", style="cyan")
-        table.add_column("Sessions", justify="right")
-        table.add_column("Win%", justify="right")
-        table.add_column("Good%", justify="right")
-        table.add_column("Avg Tokens", justify="right")
-
-        for row in established:
-            _add_stats_row(table, row, default_models, conn)
-
         console.print()
-        console.print(table)
+        console.print(
+            _make_stats_table(
+                "Model Rankings (10+ sessions)", established, default_models, conn
+            )
+        )
 
     if provisional:
-        table = Table(
-            title="[bold]Provisional Rankings (<10 sessions)[/bold]",
-            show_header=True,
-            header_style="bold magenta",
-        )
-        table.add_column("Model", style="green")
-        table.add_column("Params", justify="right", style="cyan")
-        table.add_column("Elo", justify="right", style="cyan")
-        table.add_column("Sessions", justify="right")
-        table.add_column("Win%", justify="right")
-        table.add_column("Good%", justify="right")
-        table.add_column("Avg Tokens", justify="right")
-
-        for row in provisional:
-            _add_stats_row(table, row, default_models, conn)
-
         console.print()
-        console.print(table)
+        console.print(
+            _make_stats_table(
+                "Provisional Rankings (<10 sessions)", provisional, default_models, conn
+            )
+        )
 
     if established or provisional:
         console.print()
 
 
 def show_history(sessions):
-    """Display session history. sessions: list of Row objects from get_sessions."""
+    """Display session history."""
     table = Table(
         title="[bold]Session History[/bold]",
         show_header=True,

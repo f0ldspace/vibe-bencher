@@ -29,19 +29,21 @@ def export_json(output_path, db_name=None):
         rows = db.get_all_sessions_denormalized(conn)
         data = []
         for row in rows:
-            data.append({
-                "session_id": row["session_id"],
-                "created_at": row["created_at"],
-                "prompt": row["prompt"],
-                "notes": row["notes"],
-                "model_name": row["model_name"],
-                "response": row["response"],
-                "duration_ms": row["duration_ms"],
-                "eval_count": row["eval_count"],
-                "prompt_eval_count": row["prompt_eval_count"],
-                "rank": row["rank"],
-                "quality": row["quality"],
-            })
+            data.append(
+                {
+                    "session_id": row["session_id"],
+                    "created_at": row["created_at"],
+                    "prompt": row["prompt"],
+                    "notes": row["notes"],
+                    "model_name": row["model_name"],
+                    "response": row["response"],
+                    "duration_ms": row["duration_ms"],
+                    "eval_count": row["eval_count"],
+                    "prompt_eval_count": row["prompt_eval_count"],
+                    "rank": row["rank"],
+                    "quality": row["quality"],
+                }
+            )
 
         with open(output_path, "w") as f:
             json.dump(data, f, indent=2)
@@ -58,9 +60,17 @@ def export_csv(output_path, db_name=None):
         rows = db.get_all_sessions_denormalized(conn)
 
         fieldnames = [
-            "session_id", "created_at", "prompt", "notes",
-            "model_name", "response", "duration_ms", "eval_count",
-            "prompt_eval_count", "rank", "quality",
+            "session_id",
+            "created_at",
+            "prompt",
+            "notes",
+            "model_name",
+            "response",
+            "duration_ms",
+            "eval_count",
+            "prompt_eval_count",
+            "rank",
+            "quality",
         ]
 
         with open(output_path, "w", newline="") as f:
@@ -75,19 +85,13 @@ def export_csv(output_path, db_name=None):
 
 
 def export_markdown(output_path, db_name=None, group_by_params=False):
-    """Export model stats as a markdown table (mirrors 'vb stats' output).
-    
-    Args:
-        group_by_params: If True, create separate tables grouped by parameter ranges
-    """
+    """Export model stats as a markdown table (mirrors 'vb stats' output)."""
     conn = db.get_connection(db_name)
     try:
         stats = db.get_model_stats(conn)
-
         if group_by_params:
-            return _export_markdown_grouped(stats, output_path, conn)
-        else:
-            return _export_markdown_single(stats, output_path, conn)
+            return _write_markdown_grouped(stats, output_path, conn)
+        return _write_markdown_table(stats, output_path, conn, "Model Rankings")
     finally:
         conn.close()
 
@@ -101,104 +105,64 @@ def _format_params(params):
     return f"{params:.1f}B"
 
 
-def _export_markdown_single(stats, output_path, conn=None):
-    """Export as single table (original format)."""
+def _format_row(row, conn):
+    """Format a single stats row for markdown table."""
+    params = (
+        db.resolve_params(conn, row["model_name"])
+        if conn
+        else db.extract_parameters(row["model_name"])
+    )
+    return [
+        row["model_name"],
+        _format_params(params),
+        f"{row['elo']:.0f}",
+        str(row["sessions_count"]),
+        f"{row['win_pct']:.1f}%" if row["win_pct"] is not None else "-",
+        f"{row['good_pct']:.1f}%" if row["good_pct"] is not None else "-",
+        str(int(row["avg_tokens"])) if row["avg_tokens"] else "-",
+    ]
+
+
+def _write_markdown_table(stats, output_path, conn, title):
+    """Write stats as a single markdown table."""
     headers = ["Model", "Params", "Elo", "Sessions", "Win%", "Good%", "Avg Tokens"]
-
-    lines = []
-    lines.append("# Model Rankings")
-    lines.append("")
-    lines.append("| " + " | ".join(headers) + " |")
+    lines = [f"# {title}", "", "| " + " | ".join(headers) + " |"]
     lines.append("| " + " | ".join(["---"] + ["---:"] * (len(headers) - 1)) + " |")
-
     for row in stats:
-        if conn is not None:
-            params = db.resolve_params(conn, row["model_name"])
-        else:
-            params = db.extract_parameters(row["model_name"])
-        params_display = _format_params(params)
-        
-        win_pct = f"{row['win_pct']:.1f}%" if row["win_pct"] is not None else "-"
-        good_pct = f"{row['good_pct']:.1f}%" if row["good_pct"] is not None else "-"
-        avg_tokens = str(int(row["avg_tokens"])) if row["avg_tokens"] else "-"
-        
-        lines.append("| " + " | ".join([
-            row["model_name"],
-            params_display,
-            f"{row['elo']:.0f}",
-            str(row["sessions_count"]),
-            win_pct,
-            good_pct,
-            avg_tokens,
-        ]) + " |")
-
+        lines.append("| " + " | ".join(_format_row(row, conn)) + " |")
     with open(output_path, "w") as f:
         f.write("\n".join(lines) + "\n")
-
     return len(stats)
 
 
-def _export_markdown_grouped(stats, output_path, conn=None):
+def _write_markdown_grouped(stats, output_path, conn):
     """Export as multiple tables grouped by parameter ranges."""
-    # Group stats by parameter ranges
     groups = {}
     for row in stats:
-        if conn is not None:
-            params = db.resolve_params(conn, row["model_name"])
-        else:
-            params = db.extract_parameters(row["model_name"])
+        params = (
+            db.resolve_params(conn, row["model_name"])
+            if conn
+            else db.extract_parameters(row["model_name"])
+        )
         group_name = get_parameter_group(params)
-        if group_name not in groups:
-            groups[group_name] = []
-        groups[group_name].append(row)
+        groups.setdefault(group_name, []).append(row)
 
-    lines = []
-    lines.append("# Model Rankings (Grouped by Parameters)")
-    lines.append("")
-
-    # Process groups in logical order
+    lines = ["# Model Rankings (Grouped by Parameters)", ""]
     group_order = ["<9B", "9-14B", "15-30B", "31-70B", ">70B", "Unknown"]
-    
+
     for group_name in group_order:
-        if group_name not in groups or not groups[group_name]:
+        if group_name not in groups:
             continue
-            
-        group_stats = groups[group_name]
-        
-        # Sort by Elo within each group
-        group_stats.sort(key=lambda x: x["elo"], reverse=True)
-        
+        group_stats = sorted(groups[group_name], key=lambda x: x["elo"], reverse=True)
+        headers = ["Model", "Params", "Elo", "Sessions", "Win%", "Good%", "Avg Tokens"]
         lines.append(f"## {group_name}")
         lines.append("")
-        
-        headers = ["Model", "Params", "Elo", "Sessions", "Win%", "Good%", "Avg Tokens"]
         lines.append("| " + " | ".join(headers) + " |")
         lines.append("| " + " | ".join(["---"] + ["---:"] * (len(headers) - 1)) + " |")
-
         for row in group_stats:
-            if conn is not None:
-                params = db.resolve_params(conn, row["model_name"])
-            else:
-                params = db.extract_parameters(row["model_name"])
-            params_display = _format_params(params)
-            
-            win_pct = f"{row['win_pct']:.1f}%" if row["win_pct"] is not None else "-"
-            good_pct = f"{row['good_pct']:.1f}%" if row["good_pct"] is not None else "-"
-            avg_tokens = str(int(row["avg_tokens"])) if row["avg_tokens"] else "-"
-            
-            lines.append("| " + " | ".join([
-                row["model_name"],
-                params_display,
-                f"{row['elo']:.0f}",
-                str(row["sessions_count"]),
-                win_pct,
-                good_pct,
-                avg_tokens,
-            ]) + " |")
-        
-        lines.append("")  # Blank line between tables
+            lines.append("| " + " | ".join(_format_row(row, conn)) + " |")
+        lines.append("")
 
     with open(output_path, "w") as f:
         f.write("\n".join(lines) + "\n")
-
     return len(stats)
