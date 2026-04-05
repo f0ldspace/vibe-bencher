@@ -104,14 +104,23 @@ def _make_stats_table(title, rows, default_models, conn):
 def show_stats_table(stats, default_models=None, conn=None):
     """Display Elo stats table."""
     default_models = default_models or set()
-    established = [row for row in stats if row["sessions_count"] >= 10]
+    model_rankings = [row for row in stats if row["sessions_count"] >= 20]
+    floor_ratings = [row for row in stats if 10 <= row["sessions_count"] < 20]
     provisional = [row for row in stats if row["sessions_count"] < 10]
 
-    if established:
+    if model_rankings:
         console.print()
         console.print(
             _make_stats_table(
-                "Model Rankings (10+ sessions)", established, default_models, conn
+                "Model Rankings (20+ sessions)", model_rankings, default_models, conn
+            )
+        )
+
+    if floor_ratings:
+        console.print()
+        console.print(
+            _make_stats_table(
+                "Floor Ratings (10-20 sessions)", floor_ratings, default_models, conn
             )
         )
 
@@ -123,7 +132,7 @@ def show_stats_table(stats, default_models=None, conn=None):
             )
         )
 
-    if established or provisional:
+    if model_rankings or floor_ratings or provisional:
         console.print()
 
 
