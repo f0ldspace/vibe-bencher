@@ -171,6 +171,7 @@ def _write_markdown_grouped(stats, output_path, conn):
 def export_svg(output_path, db_name=None):
     """Export model stats as SVG scatter plot (params vs elo)."""
     import matplotlib.pyplot as plt
+    import questionary
 
     conn = db.get_connection(db_name)
     try:
@@ -190,44 +191,104 @@ def export_svg(output_path, db_name=None):
             else:
                 known_params.append((model, params, elo))
 
+        apply_colors = questionary.confirm(
+            "Would you like to apply custom colors to models?", default=False
+        ).ask()
+
+        if apply_colors is None:
+            return 0
+
+        model_colors = {}
+        if apply_colors:
+            color_choices = ["red", "green", "blue", "yellow"]
+            for model, _, _ in known_params:
+                color = questionary.select(
+                    f"Select color for {model}:", choices=color_choices
+                ).ask()
+                if color is None:
+                    return 0
+                model_colors[model] = color
+            for model, _ in unknown_params:
+                color = questionary.select(
+                    f"Select color for {model}:", choices=color_choices
+                ).ask()
+                if color is None:
+                    return 0
+                model_colors[model] = color
+
         fig, ax = plt.subplots(figsize=(12, 8))
 
         if known_params:
-            names, param_vals, elos = zip(*known_params)
-            ax.scatter(
-                param_vals, elos, alpha=0.7, s=100, c="blue", label="Known params"
-            )
-            for name, p, e in known_params:
-                ax.annotate(name, (p, e), fontsize=7, alpha=0.8, ha="left", va="bottom")
+            if apply_colors:
+                for name, p, e in known_params:
+                    ax.scatter(p, e, alpha=0.7, s=100, c=model_colors[name])
+                    ax.annotate(
+                        name, (p, e), fontsize=7, alpha=0.8, ha="left", va="bottom"
+                    )
+            else:
+                names, param_vals, elos = zip(*known_params)
+                ax.scatter(
+                    param_vals, elos, alpha=0.7, s=100, c="blue", label="Known params"
+                )
+                for name, p, e in known_params:
+                    ax.annotate(
+                        name, (p, e), fontsize=7, alpha=0.8, ha="left", va="bottom"
+                    )
 
         if unknown_params:
             max_params = max(p for _, p, _ in known_params) if known_params else 100
             frontier_x = max_params * 1.15
-            for i, (name, elo) in enumerate(unknown_params):
-                y_offset = i * 15
-                ax.scatter(
-                    frontier_x, elo + y_offset, alpha=0.7, s=100, c="orange", marker="D"
+            if apply_colors:
+                for i, (name, elo) in enumerate(unknown_params):
+                    y_offset = i * 15
+                    ax.scatter(
+                        frontier_x,
+                        elo + y_offset,
+                        alpha=0.7,
+                        s=100,
+                        c=model_colors[name],
+                        marker="D",
+                    )
+                    ax.annotate(
+                        name,
+                        (frontier_x, elo + y_offset),
+                        fontsize=7,
+                        alpha=0.8,
+                        ha="left",
+                        va="bottom",
+                    )
+            else:
+                for i, (name, elo) in enumerate(unknown_params):
+                    y_offset = i * 15
+                    ax.scatter(
+                        frontier_x,
+                        elo + y_offset,
+                        alpha=0.7,
+                        s=100,
+                        c="orange",
+                        marker="D",
+                    )
+                    ax.annotate(
+                        name,
+                        (frontier_x, elo + y_offset),
+                        fontsize=7,
+                        alpha=0.8,
+                        ha="left",
+                        va="bottom",
+                    )
+                ax.axvline(
+                    x=frontier_x,
+                    color="orange",
+                    linestyle="--",
+                    alpha=0.5,
+                    label="Frontier (unknown params)",
                 )
-                ax.annotate(
-                    name,
-                    (frontier_x, elo + y_offset),
-                    fontsize=7,
-                    alpha=0.8,
-                    ha="left",
-                    va="bottom",
-                )
-            ax.axvline(
-                x=frontier_x,
-                color="orange",
-                linestyle="--",
-                alpha=0.5,
-                label="Frontier (unknown params)",
-            )
 
         ax.set_xlabel("Parameters (Billions)")
         ax.set_ylabel("Elo Score")
         ax.set_title("Model Performance: Params vs Elo")
-        ax.legend()
+        if not apply_colors:
+            ax.legend()
         ax.grid(True, alpha=0.3)
 
         fig.tight_layout()
