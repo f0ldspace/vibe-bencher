@@ -212,7 +212,7 @@ def history(last_n, model_name):
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["json", "csv", "md"]),
+    type=click.Choice(["json", "csv", "md", "svg"]),
     required=True,
     help="Export format",
 )
@@ -225,13 +225,15 @@ def history(last_n, model_name):
 def export(fmt, output_path, group_by_params):
     """Export session data."""
     from vibebencher import db
-    from vibebencher.export import export_json, export_csv, export_markdown
+    from vibebencher.export import export_csv, export_json, export_markdown, export_svg
 
     db_name = db.select_database()
     if fmt == "json":
         count = export_json(output_path, db_name=db_name)
     elif fmt == "csv":
         count = export_csv(output_path, db_name=db_name)
+    elif fmt == "svg":
+        count = export_svg(output_path, db_name=db_name)
     else:
         count = export_markdown(
             output_path, db_name=db_name, group_by_params=group_by_params

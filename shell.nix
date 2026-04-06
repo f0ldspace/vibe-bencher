@@ -6,6 +6,7 @@ pkgs.mkShell {
     python3Packages.rich
     python3Packages.click
     python3Packages.questionary
+    python3Packages.matplotlib
   ];
 
   shellHook = ''

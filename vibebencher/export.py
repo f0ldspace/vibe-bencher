@@ -166,3 +166,74 @@ def _write_markdown_grouped(stats, output_path, conn):
     with open(output_path, "w") as f:
         f.write("\n".join(lines) + "\n")
     return len(stats)
+
+
+def export_svg(output_path, db_name=None):
+    """Export model stats as SVG scatter plot (params vs elo)."""
+    import matplotlib.pyplot as plt
+
+    conn = db.get_connection(db_name)
+    try:
+        stats = db.get_model_stats(conn)
+        if not stats:
+            return 0
+
+        known_params = []
+        unknown_params = []
+
+        for row in stats:
+            params = db.resolve_params(conn, row["model_name"])
+            elo = row["elo"]
+            model = row["model_name"]
+            if params is None:
+                unknown_params.append((model, elo))
+            else:
+                known_params.append((model, params, elo))
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        if known_params:
+            names, param_vals, elos = zip(*known_params)
+            ax.scatter(
+                param_vals, elos, alpha=0.7, s=100, c="blue", label="Known params"
+            )
+            for name, p, e in known_params:
+                ax.annotate(name, (p, e), fontsize=7, alpha=0.8, ha="left", va="bottom")
+
+        if unknown_params:
+            max_params = max(p for _, p, _ in known_params) if known_params else 100
+            frontier_x = max_params * 1.15
+            for i, (name, elo) in enumerate(unknown_params):
+                y_offset = i * 15
+                ax.scatter(
+                    frontier_x, elo + y_offset, alpha=0.7, s=100, c="orange", marker="D"
+                )
+                ax.annotate(
+                    name,
+                    (frontier_x, elo + y_offset),
+                    fontsize=7,
+                    alpha=0.8,
+                    ha="left",
+                    va="bottom",
+                )
+            ax.axvline(
+                x=frontier_x,
+                color="orange",
+                linestyle="--",
+                alpha=0.5,
+                label="Frontier (unknown params)",
+            )
+
+        ax.set_xlabel("Parameters (Billions)")
+        ax.set_ylabel("Elo Score")
+        ax.set_title("Model Performance: Params vs Elo")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        fig.tight_layout()
+        fig.savefig(output_path, format="svg")
+        plt.close(fig)
+
+        return len(stats)
+    finally:
+        conn.close()
