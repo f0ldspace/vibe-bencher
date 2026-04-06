@@ -250,7 +250,6 @@ def refresh_params():
     db_name = db.select_database()
     conn = db.get_connection(db_name)
     try:
-        # Get all model names from elo_scores
         rows = conn.execute("SELECT model_name FROM elo_scores").fetchall()
         if not rows:
             console.print("[yellow]No models found. Run 'vb run' first.[/yellow]")
@@ -258,7 +257,6 @@ def refresh_params():
 
         updated = 0
         skipped = 0
-        failed = 0
 
         for row in rows:
             model_name = row["model_name"]
@@ -279,5 +277,63 @@ def refresh_params():
         console.print(
             f"\n[green]Updated {updated}[/green], [yellow]skipped {skipped}[/yellow]"
         )
+    finally:
+        conn.close()
+
+
+@cli.command("set-params")
+def set_params():
+    """Manually set parameter count for a model with unknown parameters."""
+    import questionary
+    from vibebencher import db
+
+    db_name = db.select_database()
+    conn = db.get_connection(db_name)
+    try:
+        rows = conn.execute("SELECT model_name FROM elo_scores").fetchall()
+        if not rows:
+            console.print("[yellow]No models found. Run 'vb run' first.[/yellow]")
+            return
+
+        models_with_unknown = []
+        for row in rows:
+            model_name = row["model_name"]
+            params = db.resolve_params(conn, model_name)
+            if params is None:
+                models_with_unknown.append(model_name)
+
+        if not models_with_unknown:
+            console.print("[green]All models have known parameters.[/green]")
+            return
+
+        console.print(
+            f"[bold]Models with unknown parameters ({len(models_with_unknown)}):[/bold]"
+        )
+        for model_name in sorted(models_with_unknown):
+            console.print(f"  ? {model_name}")
+        console.print()
+
+        selected = questionary.select(
+            "Select model to set parameters:",
+            choices=sorted(models_with_unknown),
+        ).ask()
+
+        if selected is None:
+            return
+
+        size_input = questionary.text(
+            "Enter parameter size (e.g., 7B, 70B, 8x22B):"
+        ).ask()
+
+        if not size_input or not size_input.strip():
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+        size = size_input.strip().upper()
+        if not size.endswith("B") and not size.endswith("M"):
+            size = size + "B"
+
+        db.cache_model_params(conn, selected, size, source="manual")
+        console.print(f"[green]Saved: {selected} → {size}[/green]")
     finally:
         conn.close()
